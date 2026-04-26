@@ -17,6 +17,18 @@ const LEAGUE_IDS = Object.keys(LEAGUE_NAMES).map((k) => Number(k));
 const LEAGUE_LIST = LEAGUE_IDS.join(",");
 
 /**
+ * Canonical position expression. `model_position` is only populated for ~50%
+ * of 2025 fact rows and is NULL for every historical row, but `api_position`
+ * is fully populated with the same `G/D/M/F` codes (plus a handful of `SUB`
+ * rows we drop). Using this everywhere guarantees every player surfaces with
+ * one of `G`, `D`, `M`, or `F`.
+ *
+ * Pass the alias of the fact_player_seasons row (e.g. `f` or `h`).
+ */
+const positionExpr = (alias: string) =>
+  `COALESCE(NULLIF(${alias}.model_position, ''), NULLIF(NULLIF(${alias}.api_position, 'SUB'), ''))`;
+
+/**
  * Canonical league per team derived from the 2025 fact rows.
  *
  * Some entries in `analytics.fact_player_seasons` carry a `league_id` that
@@ -90,7 +102,7 @@ unified AS (
     f.season_team_names,
     f.season_team_count,
     COALESCE(t.league_id, f.league_id) AS league_id,
-    f.model_position,
+    ${positionExpr("f")} AS model_position,
     f.api_position,
     f.player_age,
     f.target_market_value_eur,
@@ -221,7 +233,7 @@ export async function getCurrentMapping(): Promise<CurrentMappingRow[]> {
       f.player_name,
       f.primary_team_name AS team_name,
       COALESCE(t.league_id, f.league_id) AS league_id,
-      f.model_position,
+      ${positionExpr("f")} AS model_position,
       f.player_age,
       COALESCE(f.player_photo_url, dp.player_photo_url) AS player_photo_url,
       f.last_market_value_eur,
@@ -282,7 +294,7 @@ export async function getPlayerProfile(
       f.player_name,
       f.primary_team_name AS team_name,
       COALESCE(t.league_id, f.league_id) AS league_id,
-      f.model_position,
+      ${positionExpr("f")} AS model_position,
       f.api_position,
       f.player_age,
       COALESCE(f.player_photo_url, dp.player_photo_url) AS player_photo_url,
@@ -314,7 +326,7 @@ export async function getPlayerProfile(
       h.player_name,
       h.primary_team_name AS team_name,
       COALESCE(t.league_id, h.league_id) AS league_id,
-      h.model_position,
+      ${positionExpr("h")} AS model_position,
       h.api_position,
       h.player_age,
       COALESCE(h.player_photo_url, dp.player_photo_url) AS player_photo_url,
@@ -346,7 +358,7 @@ export async function getPlayerCohort(playerUid: string): Promise<{
     WITH ${TEAM_TO_LEAGUE_CTE}
     SELECT
       COALESCE(t.league_id, f.league_id) AS league_id,
-      f.model_position
+      ${positionExpr("f")} AS model_position
     FROM analytics.fact_player_seasons f
     LEFT JOIN team_to_league t ON t.team_name = f.primary_team_name
     WHERE f.player_uid = ?
@@ -409,7 +421,7 @@ export async function getSquad(filters: SquadFilters): Promise<SquadRow[]> {
     params.push(filters.team);
   }
   if (filters.position) {
-    where.push(`f.model_position = ?`);
+    where.push(`${positionExpr("f")} = ?`);
     params.push(filters.position);
   }
   return query<SquadRow>(
@@ -420,7 +432,7 @@ export async function getSquad(filters: SquadFilters): Promise<SquadRow[]> {
       f.player_name,
       f.primary_team_name AS team_name,
       COALESCE(t.league_id, f.league_id) AS league_id,
-      f.model_position,
+      ${positionExpr("f")} AS model_position,
       f.player_age,
       COALESCE(f.player_photo_url, dp.player_photo_url) AS player_photo_url,
       f.last_market_value_eur,
