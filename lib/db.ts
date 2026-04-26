@@ -1,11 +1,14 @@
 import "server-only";
 import path from "node:path";
 import fs from "node:fs";
-import {
-  DuckDBInstance,
-  type DuckDBConnection,
-  type DuckDBValue,
-} from "@duckdb/node-api";
+
+type MinimalDuckDBConnection = {
+  runAndReadAll: (sql: string, params?: unknown[]) => Promise<{
+    getRowObjectsJS: () => unknown[];
+  }>;
+};
+
+type DuckDBValue = unknown;
 
 const DUCKDB_PATH = path.join(
   process.cwd(),
@@ -16,22 +19,24 @@ const DUCKDB_PATH = path.join(
 
 declare global {
   // eslint-disable-next-line no-var
-  var __duckdbConn: Promise<DuckDBConnection> | undefined;
+  var __duckdbConn: Promise<MinimalDuckDBConnection> | undefined;
 }
 
-async function createConnection(): Promise<DuckDBConnection> {
+async function createConnection(): Promise<MinimalDuckDBConnection> {
   if (!fs.existsSync(DUCKDB_PATH)) {
     throw new Error(
       `DuckDB file not found at ${DUCKDB_PATH}. Build it with scripts/build_player_analytics_duckdb.py.`,
     );
   }
+  // Load DuckDB native bindings only at runtime (not during build/module eval).
+  const { DuckDBInstance } = await import("@duckdb/node-api");
   const instance = await DuckDBInstance.create(DUCKDB_PATH, {
     access_mode: "READ_ONLY",
   });
-  return await instance.connect();
+  return (await instance.connect()) as unknown as MinimalDuckDBConnection;
 }
 
-export function getConnection(): Promise<DuckDBConnection> {
+export function getConnection(): Promise<MinimalDuckDBConnection> {
   if (!globalThis.__duckdbConn) {
     globalThis.__duckdbConn = createConnection();
   }
