@@ -1,0 +1,17 @@
+dataset,source,column_count
+historical_2015_2024,API-Football,56
+historical_2015_2024,Engineered feature,8
+historical_2015_2024,Engineered key/label,3
+historical_2015_2024,Engineered/Merged,27
+historical_2015_2024,Merged identifier/context,4
+historical_2015_2024,Transfermarkt,5
+historical_2015_2024,Transfermarkt target layer,6
+historical_2015_2024,Understat,36
+prediction_2025,API-Football,56
+prediction_2025,Engineered feature,8
+prediction_2025,Engineered key/label,3
+prediction_2025,Engineered/Merged,27
+prediction_2025,Merged identifier/context,4
+prediction_2025,Transfermarkt,5
+prediction_2025,Transfermarkt target layer,6
+prediction_2025,Understat,36

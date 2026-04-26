@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+transfermarkt-datasets.duckdb
+
+data/.DS_Store
+data/api_football/
+data/api_football/.DS_Store
+data/api_football/per_season/.DS_Store
+data/api_football/per_season/player_stats/.DS_Store
+
+# Next.js / Node
+node_modules/
+.next/
+.turbo/
+.vercel/
+.pnpm-store/
+
+# TS / build artifacts
+tsconfig.tsbuildinfo
+next-env.d.ts
