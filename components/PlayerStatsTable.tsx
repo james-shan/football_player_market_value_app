@@ -93,9 +93,7 @@ const OUTFIELD_COLUMNS: ColumnDef<Row>[] = [
     header: "Assists",
     id: "assists",
     accessorFn: (row) =>
-      row.api_goals_assists != null && row.api_goals_total != null
-        ? row.api_goals_assists - row.api_goals_total
-        : (row.understat_assists ?? null),
+      row.api_goals_assists ?? row.understat_assists ?? null,
     cell: (i) => formatCount(i.getValue<number | null>()),
     meta: { className: NUMERIC_RIGHT },
   },
@@ -275,10 +273,7 @@ export default function PlayerStatsTable({
   function exportCsv() {
     const isGK = positionCode === "G";
     const exportRows = rows.map((r) => {
-      const assists =
-        r.api_goals_assists != null && r.api_goals_total != null
-          ? r.api_goals_assists - r.api_goals_total
-          : r.understat_assists;
+      const assists = r.api_goals_assists ?? r.understat_assists ?? null;
       const base = {
         season: r.season,
         team: r.team_name,

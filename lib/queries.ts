@@ -127,7 +127,10 @@ unified AS (
     f.api_shots_on,
     f.api_goals_total_per90,
     f.api_goals_assists_per90,
-    f.goals_assists_per90,
+    CASE WHEN f.api_minutes > 0
+         THEN (COALESCE(f.api_goals_total, 0) + COALESCE(f.api_goals_assists, 0))::DOUBLE
+              * 90.0 / f.api_minutes
+         END AS goals_assists_per90,
     f.api_passes_key_per90,
     f.api_tackles_total_per90,
     f.api_duels_won_per90,
@@ -438,7 +441,10 @@ export async function getSquad(filters: SquadFilters): Promise<SquadRow[]> {
       f.last_market_value_eur,
       f.predicted_market_value_eur,
       f.api_minutes,
-      f.goals_assists_per90,
+      CASE WHEN f.api_minutes > 0
+           THEN (COALESCE(f.api_goals_total, 0) + COALESCE(f.api_goals_assists, 0))::DOUBLE
+                * 90.0 / f.api_minutes
+           END AS goals_assists_per90,
       f.xg_xa_per90,
       f.api_passes_key_per90,
       f.api_tackles_total_per90,
