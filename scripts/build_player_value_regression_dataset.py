@@ -70,6 +70,28 @@ def normalize_text(value: Any) -> str:
     return text
 
 
+def player_key_variants(normalized_player: str) -> list[str]:
+    """Return candidate normalized player keys for cross-source matching.
+
+    Understat sometimes includes extra surname tokens (e.g. 'mbappe lottin')
+    while API-Football typically uses a shorter form (e.g. 'mbappe').
+    We try the full normalized key first, then fall back to a short key built
+    from the first two tokens.
+    """
+    key = (normalized_player or "").strip()
+    if not key:
+        return []
+    tokens = key.split()
+    if len(tokens) <= 2:
+        return [key]
+    short2 = " ".join(tokens[:2]).strip()
+    # Keep ordering: most-specific first.
+    out = [key]
+    if short2 and short2 != key:
+        out.append(short2)
+    return out
+
+
 def parse_season(value: Any) -> int | None:
     if value is None:
         return None
@@ -443,13 +465,12 @@ def build_understat_indices() -> tuple[dict[str, dict[tuple[Any, ...], dict[str,
             if not seasons:
                 continue
             for season in seasons:
-                key = (
-                    season,
-                    normalize_text(row.get("player")),
-                    normalize_text(row.get("team")),
-                    str(row.get("league", "")),
-                )
-                grouped[key].append(row)
+                player_norm = normalize_text(row.get("player"))
+                team_norm = normalize_text(row.get("team"))
+                league_key = str(row.get("league", ""))
+                for player_key in player_key_variants(player_norm):
+                    key = (season, player_key, team_norm, league_key)
+                    grouped[key].append(row)
 
     # Keep row with the most minutes for each key (full key already includes team).
     best_full: dict[tuple[int, str, str, str], dict[str, Any]] = {}
@@ -585,17 +606,25 @@ def merge_rows(
 
         # API rows are deduped per (player_id, season). To preserve full-season stats
         # for players who switched teams mid-season, prefer aggregated indices first.
-        understat = understat_indices["player_league"].get((season, pkey, league))
-        understat_match_level = "player_league"
-        if understat is None:
-            understat = understat_indices["player_only"].get((season, pkey))
-            understat_match_level = "player_only"
-        if understat is None:
-            understat = understat_indices["player_team"].get((season, pkey, tkey))
-            understat_match_level = "player_team"
-        if understat is None:
-            understat = understat_indices["full"].get((season, pkey, tkey, league))
-            understat_match_level = "full"
+        understat: dict[str, Any] | None = None
+        understat_match_level = ""
+        for pk in player_key_variants(pkey):
+            understat = understat_indices["player_league"].get((season, pk, league))
+            understat_match_level = "player_league" if understat else ""
+            if understat:
+                break
+            understat = understat_indices["player_only"].get((season, pk))
+            understat_match_level = "player_only" if understat else ""
+            if understat:
+                break
+            understat = understat_indices["player_team"].get((season, pk, tkey))
+            understat_match_level = "player_team" if understat else ""
+            if understat:
+                break
+            understat = understat_indices["full"].get((season, pk, tkey, league))
+            understat_match_level = "full" if understat else ""
+            if understat:
+                break
         if understat is None:
             understat = {}
             understat_match_level = ""

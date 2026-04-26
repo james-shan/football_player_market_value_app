@@ -7,8 +7,8 @@
 - Engineered: keys and transformed features (e.g., `player_season_uid`, percentile features)
 
 ## Dataset Shapes
-- Historical (2015-16 to 2024-25): 19,718 rows x 146 columns
-- Prediction (2025-26): 2,057 rows x 146 columns
+- Historical (2015-16 to 2024-25): 19,808 rows x 146 columns
+- Prediction (2025-26): 2,076 rows x 146 columns
 
 ## Key Completeness Checks
 - historical: uid null%=0.0, last_market_value null%=0.0, target null%=0.0
