@@ -11,9 +11,14 @@ type Props = {
   seasons: PlayerSeasonRow[];
 };
 
+type ChartDatum = {
+  season: number;
+  [key: string]: number | string | null;
+};
+
 function pick(seasons: PlayerSeasonRow[], group: StatChartGroup) {
   return seasons.map((s) => {
-    const row: Record<string, number | string | null> = { season: s.season };
+    const row: ChartDatum = { season: s.season };
     for (const series of group.series) {
       row[series.key] = (s[series.key as keyof PlayerSeasonRow] as
         | number
@@ -52,7 +57,7 @@ export default function PositionStats({ positionCode, seasons }: Props) {
         );
         return hasAny ? { group, data } : null;
       })
-      .filter((x): x is { group: StatChartGroup; data: Record<string, number | string | null>[] } => x != null);
+      .filter((x): x is { group: StatChartGroup; data: ChartDatum[] } => x != null);
   }, [config, seasons]);
 
   if (groups.length === 0) return null;

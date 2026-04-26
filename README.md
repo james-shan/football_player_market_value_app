@@ -1,228 +1,211 @@
-# Player Market Value Modeling Pipeline
+# Soccer Player Value Project (Technical README)
 
-This repository builds position-specific player market value models and produces 2025-26 predictions from merged football data.
+This repository contains a full pipeline to:
 
-The end-to-end workflow is:
+1. Collect and merge multi-source player-season data.
+2. Build regression-ready modeling tables.
+3. Train position-specific market value models.
+4. Produce 2025-26 player projections and feature importance.
+5. Build a DuckDB analytics database.
+6. Serve an interactive Next.js dashboard.
 
-1. Build merged player-season dataset from API-Football + Understat + Transfermarkt.
-2. Engineer model features and export modeling/prediction tables.
-3. Train and evaluate candidate models by position and setup.
-4. Select best model per position/setup.
-5. Refit selected models on all available pre-2025 seasons.
-6. Predict 2025-26 market values.
-7. Export top-10 feature importance per selected model.
-8. Visualize results, error distributions, and baseline comparisons in notebook.
+If you want the methodology and modeling narrative (data collection/cleaning/filtering/modeling/results/benchmark/feature importance/app interpretation), read `README_METHODS_AND_RESULTS.md`.
 
----
+## Repository Structure
 
-## 1) Project Outputs
+- `scripts/`: data collection, merge, modeling, and DuckDB build scripts.
+- `notebooks/`: feature engineering and results visualization notebooks.
+- `data/`: raw/intermediate/final datasets and reports.
+- `app/`, `components/`, `lib/`: Next.js analytics dashboard.
 
-Main output files (written under `data/merged/`):
+## End-to-End Pipeline Overview
 
-- `player_value_modeling_2015_16_to_2024_25.csv`
-  - historical training/evaluation data (target available)
-- `player_stats_2025_26_null_market_value.csv`
-  - 2025-26 scoring data (target intentionally null)
-- `player_market_value_model_comparison.csv`
-  - all candidate model results and selected flags
-- `player_market_value_predictions_2025_26.csv`
-  - final 2025-26 predictions
-- `player_market_value_feature_importance_top10.csv`
-  - top-10 features per selected model (position/setup)
+### Step 1: Collect API-Football data
 
-Optional reporting outputs:
+Two collection paths are supported:
 
-- `data/reports/player_value_data_dictionary.csv`
-- `data/reports/player_value_numeric_distribution.csv`
-- `data/reports/player_value_categorical_distribution.csv`
-- `data/reports/player_value_source_summary.csv`
-- `data/reports/player_value_data_report.md`
+- Per-season player endpoint pipeline: `scripts/api_football_players_flow.py`
+- Per-fixture player endpoint pipeline: `scripts/api_football_fixture_players_flow.py`
 
----
+Both scripts support:
 
-## 2) Data Sources and Join Logic
+- Single league-season runs.
+- Batch runs across league lists and season ranges.
+- `--count-only` mode to estimate API usage before downloading.
+- Environment key override via `API_FOOTBALL_KEY`.
 
-Primary sources:
+### Step 2: Merge API-Football + Understat + Transfermarkt
 
-- **API-Football** (`api_*` columns): season and per-90 box stats, position, team context
-- **Understat** (`understat_*` columns): xG/xA, chain/build-up metrics
-- **Transfermarkt**:
-  - current market value target (`target_market_value_eur`)
-  - lag market value (`last_market_value_eur`)
-  - age and matching metadata
+Script: `scripts/build_player_value_regression_dataset.py`
 
-Dataset creation script:
+This stage:
 
-- `scripts/build_player_value_regression_dataset.py`
+- Auto-selects API source (`per_fixture` vs `per_season`) by null-completeness unless overridden.
+- Normalizes player/team names for matching.
+- Deduplicates player-season rows and aggregates transfer seasons.
+- Merges Understat stats with fallback matching levels.
+- Merges Transfermarkt season-end target values and lag market values.
+- Forces season `2025` target to null (prediction-only season).
 
-Feature engineering notebook:
+Outputs:
+
+- `data/merged/player_season_regression_dataset.csv`
+- `data/merged/player_season_regression_dataset_all3.csv`
+
+### Step 3: Feature engineering and model tables
+
+Notebook: `notebooks/regression_data_prep.ipynb`
+
+Key outputs generated for model training/scoring:
+
+- `data/merged/player_value_modeling_2015_16_to_2024_25.csv` (historical training/eval)
+- `data/merged/player_stats_2025_26_null_market_value.csv` (2025 scoring table)
+
+### Step 4: Train models and generate predictions
+
+Script: `scripts/model_player_market_values_by_position.py`
+
+This script:
+
+- Trains per position (`D`, `F`, `G`, `M`), per setup (`uses_last_market_value` true/false).
+- Evaluates 3 feature specs × 2 algorithms (`ridge`, `lightgbm`).
+- Tunes hyperparameters on validation set.
+- Selects best candidate by a configurable test metric (default `test_mae`).
+- Refits selected models on all completed seasons.
+- Scores prediction season (default `2025`).
+- Exports top-10 transformed feature importances for selected models.
+
+Outputs:
+
+- `data/merged/player_market_value_model_comparison.csv`
+- `data/merged/player_market_value_predictions_2025_26.csv`
+- `data/merged/player_market_value_feature_importance_top10.csv`
+
+### Step 5: Build analytics DuckDB for app
+
+Script: `scripts/build_player_analytics_duckdb.py`
+
+This stage builds:
+
+- Raw imported tables from merged CSVs.
+- `analytics.dim_players`
+- `analytics.fact_player_team_seasons`
+- `analytics.fact_player_seasons` (unique on player-season)
+- `analytics.vw_player_latest_projection`
+
+Output:
+
+- `data/merged/player_analytics.duckdb`
+
+### Step 6: Run dashboard app
+
+The app queries `data/merged/player_analytics.duckdb` through `@duckdb/node-api`.
+
+Pages:
+
+- `/`: player explorer
+- `/squad`: squad and league summary
+
+## Environment Setup
+
+### Python environment (pipeline)
+
+Use your project Python environment (for example, conda env `compstats_proj`) and install required libraries if needed:
+
+- `duckdb`
+- `pandas`
+- `numpy`
+- `scikit-learn`
+- `lightgbm`
+
+### Node environment (app)
+
+- Node.js 18.18+ (Node 20 LTS recommended)
+- npm (lockfile is included)
+
+## Data Pipeline Commands
+
+Run from repository root.
+
+### 1) API-Football collection (per-season route)
+
+Single league-season:
+
+```bash
+python scripts/api_football_players_flow.py --league 39 --season 2021
+```
+
+Top-5 leagues over range:
+
+```bash
+python scripts/api_football_players_flow.py --batch-top5 --start-season 2011 --end-season 2025
+```
+
+Count API requests only:
+
+```bash
+python scripts/api_football_players_flow.py --batch-top5 --start-season 2011 --end-season 2025 --count-only
+```
+
+### 2) API-Football collection (per-fixture route)
+
+Single league-season:
+
+```bash
+python scripts/api_football_fixture_players_flow.py --league 39 --season 2012
+```
+
+Count API requests only:
+
+```bash
+python scripts/api_football_fixture_players_flow.py --league 39 --season 2012 --count-only
+```
+
+Batch top-5 + merge existing aggregated CSVs:
+
+```bash
+python scripts/api_football_fixture_players_flow.py --batch-top5 --start-season 2011 --end-season 2025
+```
+
+### 3) Build merged regression dataset
+
+Auto-select API source by completeness:
+
+```bash
+python scripts/build_player_value_regression_dataset.py
+```
+
+Force source:
+
+```bash
+python scripts/build_player_value_regression_dataset.py --api-source per_fixture
+```
+
+### 4) Prepare model tables in notebook
+
+Open and run:
 
 - `notebooks/regression_data_prep.ipynb`
 
----
+Ensure the notebook exports:
 
-## 3) Modeling Tables and Key Rules
+- `data/merged/player_value_modeling_2015_16_to_2024_25.csv`
+- `data/merged/player_stats_2025_26_null_market_value.csv`
 
-Prepared tables are generated in `notebooks/regression_data_prep.ipynb` with these key rules:
+### 5) Train/evaluate models and predict 2025
 
-- Position segmentation is explicit via `model_position` (`D`, `F`, `G`, `M`; `SUB` removed).
-- Stable row key:
-  - `player_season_uid` for mapping predictions back to players/seasons.
-- Null policy:
-  - row-drop for non-target columns under configured threshold.
-  - report columns above threshold.
-- Required lag-value rule:
-  - rows with missing `last_market_value_eur` are dropped when that policy is enabled.
-- Two final exports:
-  - historical 2015-2024 table with target
-  - 2025 table with null target
-
-Core target columns:
-
-- `target_market_value_eur`
-- `target_market_value_log = log1p(target_market_value_eur)`
-
-Lag columns:
-
-- `last_market_value_eur`
-- `last_market_value_log = log1p(last_market_value_eur)`
-- `has_last_market_value`
-
----
-
-## 4) Training Script Overview
-
-Training script:
-
-- `scripts/model_player_market_values_by_position.py`
-
-### 4.1 Candidate design
-
-For each position (`D`, `F`, `G`, `M`) and each setup:
-
-- `uses_last_market_value=False`
-- `uses_last_market_value=True` (adds lag feature + stricter row eligibility)
-
-the script trains candidate combinations across:
-
-- 3 feature specs:
-  - `model_1_simplified_performance`
-  - `model_2_full_performance_age_exposure`
-  - `model_3_position_percentiles`
-- 2 algorithms:
-  - `ridge`
-  - `lightgbm` (shallow settings to reduce overfitting risk)
-
-### 4.2 Target specification
-
-All model setups use the same target:
-
-- `target_market_value_log`
-
-Predictions are converted back to EUR with:
-
-- `predicted_market_value_eur = expm1(raw_prediction)`
-
-### 4.3 Time split
-
-If not overridden:
-
-- Train: all completed seasons before validation
-- Validation: second-most-recent completed season
-- Test: most-recent completed season
-- Prediction: configured prediction season (default `2025`)
-
-### 4.4 Selection metric
-
-Default selection metric:
-
-- `test_mae`
-
-Supported:
-
-- `test_mae`, `test_rmse`, `test_rmsle`, `test_r2`
-
-### 4.5 Refit before prediction
-
-After selecting best candidate per position/setup, each selected model is **retrained on all available completed seasons**:
-
-- `train + validation + test`
-
-Then used to score 2025 rows.
-
----
-
-## 5) LightGBM Anti-Overfit Setup
-
-Current LightGBM base configuration:
-
-- `subsample=0.8`
-- `colsample_bytree=0.8`
-- `reg_alpha=0.1`
-- `reg_lambda=0.5`
-- `objective="regression"`
-
-Grid (shallow):
-
-- `n_estimators`: 100, 200
-- `max_depth`: 3, 5
-- `num_leaves`: 7, 15
-- `min_child_samples`: 30, 60
-- `learning_rate`: 0.03, 0.05
-
----
-
-## 6) Feature Importance Export
-
-The script exports top-10 transformed features for each selected position/setup model:
-
-- Output: `data/merged/player_market_value_feature_importance_top10.csv`
-- Columns:
-  - `position`
-  - `uses_last_market_value`
-  - `model_spec`
-  - `algorithm`
-  - `feature_rank`
-  - `feature`
-  - `importance`
-
-Importance definition:
-
-- LightGBM: `feature_importances_`
-- Ridge: absolute coefficient magnitude (fallback proxy)
-
----
-
-## 7) Visualization Notebook
-
-Notebook:
-
-- `notebooks/player_market_value_results_visualization.ipynb`
-
-Includes:
-
-- selected model summary tables
-- candidate metric comparisons
-- 2025 prediction summaries
-- baseline (`predict next value = last value`) with `R^2`
-- test-season error distribution in 2x2 grid by position
-
----
-
-## 8) Run Instructions
-
-Use your project environment (example shown with `compstats_proj`):
+Default:
 
 ```bash
-/Users/james/opt/anaconda3/envs/compstats_proj/bin/python "scripts/model_player_market_values_by_position.py"
+python scripts/model_player_market_values_by_position.py
 ```
 
-Common overrides:
+Common override pattern:
 
 ```bash
-/Users/james/opt/anaconda3/envs/compstats_proj/bin/python "scripts/model_player_market_values_by_position.py" \
-  --training-data "data/merged/player_value_modeling_2015_16_to_2024_25.csv" \
-  --prediction-data "data/merged/player_stats_2025_26_null_market_value.csv" \
+python scripts/model_player_market_values_by_position.py \
+  --training-data data/merged/player_value_modeling_2015_16_to_2024_25.csv \
+  --prediction-data data/merged/player_stats_2025_26_null_market_value.csv \
   --validation-season 2023 \
   --test-season 2024 \
   --prediction-season 2025 \
@@ -230,143 +213,81 @@ Common overrides:
   --min-split-rows 20
 ```
 
----
-
-## 9) Troubleshooting
-
-### Script exits with no selected models
-
-Cause:
-
-- split subset too small per position/setup.
-
-Fix:
-
-- lower `--min-split-rows`, or increase available seasons/rows.
-
-The script now handles this case gracefully and still writes empty-structured outputs.
-
-### Environment mismatch / command crashes
-
-Use explicit interpreter path:
+### 6) Build DuckDB analytics database
 
 ```bash
-/Users/james/opt/anaconda3/envs/compstats_proj/bin/python "scripts/model_player_market_values_by_position.py"
+python scripts/build_player_analytics_duckdb.py
 ```
 
-### LightGBM import issue
+## Run the Dashboard
 
-Install in same environment:
-
-```bash
-pip install lightgbm
-```
-
----
-
-## 10) File Index
-
-- Data merge script: `scripts/build_player_value_regression_dataset.py`
-- Feature engineering notebook: `notebooks/regression_data_prep.ipynb`
-- Training/prediction script: `scripts/model_player_market_values_by_position.py`
-- Results notebook: `notebooks/player_market_value_results_visualization.ipynb`
-- DuckDB build script: `scripts/build_player_analytics_duckdb.py`
-- Dashboard app: `app/`, `components/`, `lib/`
-
----
-
-## 11) Web Dashboard
-
-A Next.js + DuckDB dashboard for exploring player history and 2025-26
-projected market values lives in this same repository.
-
-### 11.1 Prerequisites
-
-- Node.js 18.18+ (Node 20 LTS recommended)
-- The DuckDB analytics file at `data/merged/player_analytics.duckdb`
-  - If missing, generate it with:
-    ```bash
-    python scripts/build_player_analytics_duckdb.py
-    ```
-
-### 11.2 Install and run
+Install and start:
 
 ```bash
 npm install
 npm run dev
-# open http://localhost:3000
 ```
 
-For a production build:
+Open [http://localhost:3000](http://localhost:3000).
+
+Production mode:
 
 ```bash
 npm run build
 npm start
 ```
 
-### 11.3 Pages
+## App Data Layer Notes
 
-- `/` — **Player Explorer.** League → club → player filters, fuzzy search,
-  player profile (photo, current team/league/position/age), market value
-  timeline (historical actuals + 2025-26 projected end-of-season), a
-  **percentile chart** that ranks the selected player's key stats against
-  every other player in the same league + position (cohort size shown in
-  the legend), **position-specific stat blocks** (e.g. *Shot Stopping* /
-  *Distribution* for goalkeepers, *Goal Output* / *Creation* for forwards,
-  *Defensive Actions* / *Attacking Contribution* for defenders, etc.), and a
-  sortable season-by-season stats table with CSV export. Players without a
-  2025-26 projection are excluded from the filters and search.
-- `/squad` — **Club / League Overview.** Squad-level summary built from the
-  current 2025 mapping: total current vs projected squad value, average
-  projected change, top risers/fallers, current vs projected by position,
-  projected change distribution, top-10 projected values, and a per-player
-  squad table. Each team is assigned its modal league across the 2025 fact
-  rows, so the Club selector only ever lists clubs that actually play in
-  the chosen league.
+- Connection layer: `lib/db.ts`
+- Query layer: `lib/queries.ts`
+- Label mapping: `lib/labels.ts`
+- Formatting helpers: `lib/format.ts`
+- Position view config: `lib/positionConfig.ts`
+- API routes:
+  - `app/api/mapping/route.ts`
+  - `app/api/player/[uid]/route.ts`
+  - `app/api/cohort/[uid]/route.ts`
+  - `app/api/squad/route.ts`
 
-### 11.4 Data layer
+## Key Artifacts Produced
 
-The dashboard reads `data/merged/player_analytics.duckdb` in read-only mode
-through `@duckdb/node-api`. Source files of interest:
+Core modeling and analytics outputs:
 
-- `lib/db.ts` — singleton DuckDB connection.
-- `lib/queries.ts` — SQL builders. Defines the unified player-season query
-  used everywhere:
-  - historical seasons (`< 2025`) come from
-    `analytics.raw_player_season_regression_dataset`, with goalkeeper-only
-    columns (`api_goals_conceded`, `api_goals_saves`) joined back in so GKs
-    have full shot-stopping history.
-  - 2025-26 projection rows come from `analytics.fact_player_seasons` filtered
-    to `uses_last_market_value = TRUE` (the canonical projection per player)
-    and `predicted_market_value_eur IS NOT NULL`. GK current-season saves /
-    goals conceded are joined from `analytics.raw_player_stats_2025_26`.
-  - A **canonical team→league** CTE picks each team's modal `league_id` from
-    the 2025 fact rows. Every UI-facing query (mapping, squad, league
-    options) maps team rows through it, eliminating cross-league bleed
-    caused by inconsistent raw league codes.
-- `lib/positionConfig.ts` — per-position chart layout (`Goalkeeper`,
-  `Defender`, `Midfielder`, `Forward`) and the percentile-metric set used
-  by the Player Explorer cohort visualization.
-- `app/api/cohort/[uid]/route.ts` — returns the player's same-league,
-  same-position cohort (current 2025 season only, projection-required) so
-  the percentile chart can compute ranks client-side.
-- `lib/labels.ts` — display-name mapping. Raw DuckDB columns are never shown
-  in the UI; everything goes through this layer (e.g.
-  `target_market_value_eur` → `Market Value`,
-  `predicted_market_value_eur` → `Projected End-of-Season Value`,
-  `goals_assists_per90` → `Goals + Assists / 90`,
-  `xg_xa_per90` → `xG + xA / 90`,
-  `duel_win_rate` → `Duel Win %`,
-  `dribble_success_rate` → `Dribble Success %`).
-- `lib/format.ts` — currency, percent, rate, and count formatting helpers.
+- `data/merged/player_value_modeling_2015_16_to_2024_25.csv`
+- `data/merged/player_stats_2025_26_null_market_value.csv`
+- `data/merged/player_market_value_model_comparison.csv`
+- `data/merged/player_market_value_predictions_2025_26.csv`
+- `data/merged/player_market_value_feature_importance_top10.csv`
+- `data/merged/player_analytics.duckdb`
 
-### 11.5 Stack
+Supporting reports:
 
-- Next.js 16 (App Router) + React 19 + TypeScript
-- Tailwind CSS for styling
-- Recharts for charts
-- TanStack Table for the stats grid
-- Fuse.js for fuzzy player search
-- Papa Parse for CSV export
-- `@duckdb/node-api` (read-only) for the data backend
+- `data/reports/player_value_data_dictionary.csv`
+- `data/reports/player_value_numeric_distribution.csv`
+- `data/reports/player_value_categorical_distribution.csv`
+- `data/reports/player_value_source_summary.csv`
+- `data/reports/player_value_data_report.md`
+
+## Troubleshooting
+
+- No selected models in training output:
+  - Lower `--min-split-rows` or provide more seasons/rows per position/setup.
+- LightGBM import error:
+  - Install `lightgbm` in the same Python environment used to run scripts.
+- App shows no data:
+  - Rebuild `data/merged/player_analytics.duckdb` after generating predictions.
+- API-Football throttling:
+  - Use `--count-only` first and increase `--throttle-seconds`.
+
+## Technical File Index
+
+- API per-season fetch: `scripts/api_football_players_flow.py`
+- API per-fixture fetch: `scripts/api_football_fixture_players_flow.py`
+- Merge builder: `scripts/build_player_value_regression_dataset.py`
+- Feature engineering: `notebooks/regression_data_prep.ipynb`
+- Model training/prediction: `scripts/model_player_market_values_by_position.py`
+- Results analysis: `notebooks/player_market_value_results_visualization.ipynb`
+- DuckDB build: `scripts/build_player_analytics_duckdb.py`
+- Dashboard: `app/`, `components/`, `lib/`
 
